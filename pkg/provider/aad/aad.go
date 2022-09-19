@@ -763,102 +763,106 @@ func (ac *Client) Authenticate(loginDetails *creds.LoginDetails) (string, error)
 	}
 
 	//  get saml assertion
-	oidcResponse, err := ioutil.ReadAll(res.Body)
-	if err != nil {
-		return samlAssertion, errors.Wrap(err, "oidc login response error")
-	}
-
-	oidcResponseStr := string(oidcResponse)
-
-	// data is embedded javascript
-	// window.location = 'https:/..../?SAMLRequest=......'
-	oidcResponseList := strings.Split(oidcResponseStr, ";")
-	var SAMLRequestURL string
-	for _, v := range oidcResponseList {
-		if strings.Contains(v, "SAMLRequest") {
-			startURLPos := strings.Index(v, "https://")
-			endURLPos := strings.Index(v[startURLPos:], "'")
-			if endURLPos == -1 {
-				endURLPos = strings.Index(v[startURLPos:], "\"")
-			}
-			SAMLRequestURL = v[startURLPos : startURLPos+endURLPos]
+	/*
+		oidcResponse, err := ioutil.ReadAll(res.Body)
+		if err != nil {
+			return samlAssertion, errors.Wrap(err, "oidc login response error")
 		}
 
-	}
-	if SAMLRequestURL == "" {
-		return samlAssertion, fmt.Errorf("unable to locate SAMLRequest URL")
-	}
+		oidcResponseStr := string(oidcResponse)
+			// data is embedded javascript
+			// window.location = 'https:/..../?SAMLRequest=......'
+			oidcResponseList := strings.Split(oidcResponseStr, ";")
+			var SAMLRequestURL string
+			for _, v := range oidcResponseList {
+				if strings.Contains(v, "SAMLRequest") {
+					startURLPos := strings.Index(v, "https://")
+					endURLPos := strings.Index(v[startURLPos:], "'")
+					if endURLPos == -1 {
+						endURLPos = strings.Index(v[startURLPos:], "\"")
+					}
+					SAMLRequestURL = v[startURLPos : startURLPos+endURLPos]
+				}
 
-	req, err = http.NewRequest("GET", SAMLRequestURL, nil)
-	if err != nil {
-		return samlAssertion, errors.Wrap(err, "error building get request")
-	}
+			}
+			if SAMLRequestURL == "" {
+				return samlAssertion, fmt.Errorf("unable to locate SAMLRequest URL")
+			}
 
-	res, err = ac.client.Do(req)
-	if err != nil {
-		return samlAssertion, errors.Wrap(err, "error retrieving oidc login form results")
-	}
+			req, err = http.NewRequest("GET", SAMLRequestURL, nil)
+			if err != nil {
+				return samlAssertion, errors.Wrap(err, "error building get request")
+			}
+
+			res, err = ac.client.Do(req)
+			if err != nil {
+				return samlAssertion, errors.Wrap(err, "error retrieving oidc login form results")
+			}
+	*/
 
 	// if mfa skipped then get $Config and urlSkipMfaRegistration
 	// get urlSkipMfaRegistraition to return saml assertion
-	resBodyStr, err = ac.responseBodyAsString(res.Body)
+	//resBodyStr, err = ac.responseBodyAsString(res.Body)
+	samlAssertion, err = ac.responseBodyAsString(res.Body)
 	if err != nil {
 		return samlAssertion, errors.Wrap(err, "error oidc login response read")
 	}
-	if strings.Contains(resBodyStr, "arrUserProofs") {
-		// data is embedded javascript object
-		// <script><![CDATA[  $Config=......; ]]>
-		var loginPasswordJson string
-		if strings.Contains(resBodyStr, "$Config") {
-			loginPasswordJson = ac.getJsonFromConfig(resBodyStr)
+	/*
+		if strings.Contains(resBodyStr, "arrUserProofs") {
+			// data is embedded javascript object
+			// <script><![CDATA[  $Config=......; ]]>
+			var loginPasswordJson string
+			if strings.Contains(resBodyStr, "$Config") {
+				loginPasswordJson = ac.getJsonFromConfig(resBodyStr)
+			}
+			resBodyStr, err = ac.processAuth(loginPasswordJson, res)
+			if err != nil {
+				return samlAssertion, err
+			}
 		}
-		resBodyStr, err = ac.processAuth(loginPasswordJson, res)
+
+		// data in input tag
+		doc, err = goquery.NewDocumentFromReader(strings.NewReader(resBodyStr))
 		if err != nil {
-			return samlAssertion, err
-		}
-	}
-
-	// data in input tag
-	doc, err = goquery.NewDocumentFromReader(strings.NewReader(resBodyStr))
-	if err != nil {
-		return samlAssertion, errors.Wrap(err, "failed to build document from response")
-	}
-
-	doc.Find("input").Each(func(i int, s *goquery.Selection) {
-		attrName, ok := s.Attr("name")
-		if !ok {
-			return
-		}
-		if attrName != "SAMLResponse" {
-			return
-		}
-		samlAssertion, _ = s.Attr("value")
-	})
-	if samlAssertion != "" {
-		return samlAssertion, nil
-	}
-	res, err = ac.reProcess(resBodyStr)
-	if err != nil {
-		return samlAssertion, errors.Wrap(err, "failed to saml request reprocess")
-	}
-	resBodyStr, _ = ac.responseBodyAsString(res.Body)
-	doc, err = goquery.NewDocumentFromReader(strings.NewReader(resBodyStr))
-	if err != nil {
-		return samlAssertion, errors.Wrap(err, "failed to build document from result body")
-	}
-
-	doc.Find("input").Each(func(i int, s *goquery.Selection) {
-		attrName, ok := s.Attr("name")
-		if !ok {
-			return
+			return samlAssertion, errors.Wrap(err, "failed to build document from response")
 		}
 
-		if attrName != "SAMLResponse" {
-			return
+		doc.Find("input").Each(func(i int, s *goquery.Selection) {
+			attrName, ok := s.Attr("name")
+			if !ok {
+				return
+			}
+			if attrName != "SAMLResponse" {
+				return
+			}
+			samlAssertion, _ = s.Attr("value")
+		})
+		if samlAssertion != "" {
+			return samlAssertion, nil
+		}
+		res, err = ac.reProcess(resBodyStr)
+		if err != nil {
+			return samlAssertion, errors.Wrap(err, "failed to saml request reprocess")
+		}
+		resBodyStr, _ = ac.responseBodyAsString(res.Body)
+		doc, err = goquery.NewDocumentFromReader(strings.NewReader(resBodyStr))
+		if err != nil {
+			return samlAssertion, errors.Wrap(err, "failed to build document from result body")
 		}
 
-		samlAssertion, _ = s.Attr("value")
-	})
+		doc.Find("input").Each(func(i int, s *goquery.Selection) {
+			attrName, ok := s.Attr("name")
+			if !ok {
+				return
+			}
+
+			if attrName != "SAMLResponse" {
+				return
+			}
+
+			samlAssertion, _ = s.Attr("value")
+		})
+	*/
 	if samlAssertion != "" {
 		return samlAssertion, nil
 	}
